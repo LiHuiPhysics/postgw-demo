@@ -1,0 +1,47 @@
+{
+ "params": {
+  "L": 4,
+  "beta": 8.0,
+  "U": 2.0,
+  "t": 1.0,
+  "tp": 0.0,
+  "tpp": 0.0,
+  "nproc": 8,
+  "lmax_scgw": 40
+ },
+ "n_frames": 2,
+ "fps": 3,
+ "frames": [
+  {
+   "idx": 0,
+   "mu": 0.5,
+   "sampling": "periodized",
+   "dos_at_zero": 0.1587877325353293,
+   "dos_integral": 0.9950594703573283,
+   "fs_max": 0.4063058099263802,
+   "n_post": 0.8081339842244339,
+   "ndiv": 0,
+   "wall_s": 26.273606538772583,
+   "wall_ac_s": 2.5247950553894043,
+   "sumrule_mean": 0.9950594703573283,
+   "n_fail": 0,
+   "reG_path": "pole_analytic"
+  },
+  {
+   "idx": 1,
+   "mu": 1.5,
+   "sampling": "periodized",
+   "dos_at_zero": 0.15922985913913465,
+   "dos_integral": 0.9863591452626139,
+   "fs_max": 0.41102586425146337,
+   "n_post": 1.19186629893029,
+   "ndiv": 0,
+   "wall_s": 25.498119592666626,
+   "wall_ac_s": 2.519280195236206,
+   "sumrule_mean": 0.9863591452626139,
+   "n_fail": 0,
+   "reG_path": "pole_analytic"
+  }
+ ],
+ "generated": "2026-11-11 21:11:59"
+}

@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>postGW 谱函数工作台</title>
+<style>
+:root{
+  --bg:#0f1115; --panel:#161a22; --panel2:#1c2230; --line:#262d3d;
+  --fg:#e6e9ef; --dim:#98a2b6; --acc:#4ea1ff; --ok:#3ddc97; --warn:#ffb020;
+  --bad:#ff6b6b; --mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
+  font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+a{color:var(--acc)}
+/* ⚠️ 布局留白：旧值（wrap gap/padding 14px、card padding 12px、label margin 9px、
+   input padding 6px）整体偏紧，四张卡在左栏堆成长条，用户反馈"太挤"。
+   现放大间距 + 左栏粘性独立滚动（不再把右栏一起拉长）。 */
+.wrap{display:grid;grid-template-columns:352px 1fr;gap:24px;padding:22px 26px 34px;
+  max-width:1880px;margin:0 auto;align-items:start}
+@media(max-width:1040px){.wrap{grid-template-columns:1fr;gap:18px;padding:16px}}
+/* 左栏：粘性 + 独立滚动，参数区始终可见，不随右栏结果一起滚走 */
+.side{position:sticky;top:22px;max-height:calc(100vh - 44px);overflow-y:auto;
+  padding-right:6px;scrollbar-width:thin}
+@media(max-width:1040px){.side{position:static;max-height:none;overflow:visible}}
+.side::-webkit-scrollbar{width:7px}
+.side::-webkit-scrollbar-thumb{background:#2c3548;border-radius:4px}
+header{grid-column:1/-1;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+  padding-bottom:4px}
+header h1{font-size:19px;margin:0;font-weight:600;letter-spacing:.3px}
+header .sub{color:var(--dim);font-size:12.5px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:16px 18px;margin-bottom:18px}
+.card h2{font-size:12px;margin:0 0 13px;text-transform:uppercase;letter-spacing:.9px;
+  color:var(--dim);font-weight:600}
+label{display:block;font-size:12px;color:var(--dim);margin:13px 0 5px}
+select,input[type=number]{width:100%;background:var(--panel2);color:var(--fg);
+  border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;
+  font-family:inherit}
+input[type=range]{width:100%;accent-color:var(--acc);margin-top:2px}
+input:focus,select:focus{outline:none;border-color:var(--acc)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:11px}
+.hint{font-size:11.5px;color:var(--dim);margin-top:7px;line-height:1.55}
+.warnbox{background:#2a1f14;border:1px solid #5a3f18;color:#ffcf8a;
+  border-radius:8px;padding:10px 11px;font-size:12px;margin-top:12px;line-height:1.6}
+.errbox{background:#2a1618;border:1px solid #5a2529;color:#ffb4b4;
+  border-radius:8px;padding:10px 11px;font-size:12px;margin-top:12px}
+.chk{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px}
+.chk input{accent-color:var(--acc);width:15px;height:15px}
+button{width:100%;background:var(--acc);color:#08131f;border:0;border-radius:9px;
+  padding:11px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+button:hover{filter:brightness(1.12)}
+button:disabled{background:#2b3446;color:#7b8698;cursor:not-allowed}
+button.ghost{background:var(--panel2);color:var(--fg);border:1px solid var(--line);
+  font-weight:500;font-size:12px;padding:8px}
+details{border-top:1px solid var(--line);margin-top:10px;padding-top:8px}
+summary{cursor:pointer;font-size:12px;color:var(--acc);outline:none}
+.methodnote{font-size:11.5px;color:var(--dim);margin-top:7px;line-height:1.55;
+  background:var(--panel2);border-radius:7px;padding:8px 9px;
+  border-left:2px solid var(--acc)}
+.methodnote.unavail{border-left-color:var(--bad);opacity:.85}
+/* ---- 右栏 ---- */
+.statusbar{display:flex;align-items:center;gap:13px;flex-wrap:wrap}
+.badge{font-size:11.5px;padding:4px 11px;border-radius:20px;font-weight:600;
+  letter-spacing:.3px;white-space:nowrap}
+.b-pending{background:#2b3446;color:#a8b3c7}
+.b-running{background:#12324f;color:#6cc0ff}
+.b-done{background:#0f3b2c;color:var(--ok)}
+.b-error{background:#3d1a1d;color:var(--bad)}
+.stage{font-size:13px;color:var(--fg);flex:1;min-width:200px}
+.eta{font-size:12px;color:var(--dim);font-family:var(--mono);white-space:nowrap}
+.bar{height:8px;background:var(--panel2);border-radius:5px;overflow:hidden;
+  margin-top:13px}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,#2f7bd6,#4ea1ff);
+  width:0%;transition:width .3s}
+.logs{background:#0b0d12;border:1px solid var(--line);border-radius:9px;
+  padding:11px 12px;font-family:var(--mono);font-size:11.5px;line-height:1.7;
+  height:230px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
+  color:#b9c3d4}
+.logs .t{color:#5d6b80}
+.logs .w{color:var(--warn)} .logs .e{color:var(--bad)} .logs .g{color:var(--ok)}
+/* 门禁 */
+.gates{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:12px}
+.gate{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+  padding:11px 12px;border-left:3px solid #3a4356}
+.gate.pass{border-left-color:var(--ok)}
+.gate.fail{border-left-color:var(--bad)}
+.gate .gn{font-size:12px;font-weight:600;display:flex;justify-content:space-between;
+  gap:7px;align-items:center}
+.gate .gv{font-family:var(--mono);font-size:11px;color:var(--acc);margin:5px 0;
+  word-break:break-all;line-height:1.5}
+.gate .gd{font-size:10.5px;color:var(--dim);line-height:1.55}
+/* 图 */
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.tab{background:var(--panel2);border:1px solid var(--line);color:var(--dim);
+  border-radius:8px;padding:7px 15px;font-size:12.5px;cursor:pointer}
+.tab.on{background:#12324f;border-color:#2f6ba8;color:#9fd0ff;font-weight:600}
+.fighead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:11px}
+.fighead .ft{font-size:13.5px;font-weight:600}
+.fighead a{font-size:11.5px}
+.figbox{background:#fff;border-radius:9px;padding:9px;text-align:center;
+  overflow-x:auto}
+.figbox img{max-width:100%;height:auto;display:block;margin:0 auto}
+.metrics{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:11px;
+  display:flex;gap:16px;flex-wrap:wrap}
+.metrics b{color:var(--fg);font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{text-align:left;padding:5px 7px;border-bottom:1px solid var(--line)}
+th{color:var(--dim);font-weight:600;font-size:11px;text-transform:uppercase;
+  letter-spacing:.4px}
+td.num{font-family:var(--mono);color:var(--acc)}
+.empty{color:var(--dim);font-size:13px;text-align:center;padding:52px 18px;
+  line-height:1.8}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:12.5px}
+.kv dt{color:var(--dim)} .kv dd{margin:0;font-family:var(--mono);color:var(--fg)}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid #2f6ba8;
+  border-top-color:transparent;border-radius:50%;animation:sp .8s linear infinite;
+  vertical-align:-1px;margin-right:5px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.foot{grid-column:1/-1;color:#5d6b80;font-size:11px;text-align:center;
+  padding:14px 0 26px;line-height:1.7}
+/* ---- 扫描动画 ---- */
+.ctlbar{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin-bottom:14px}
+.ctlbar button{width:auto;padding:8px 15px;font-size:12.5px}
+.ctlbar input[type=range]{flex:1;min-width:200px}
+.ctlbar select{width:auto;background:var(--panel2);color:var(--fg);
+  border:1px solid var(--line);border-radius:7px;padding:6px 9px;font-size:12px}
+.muval{font-family:var(--mono);font-size:13px;min-width:140px;color:var(--acc)}
+.animbox{background:#fff;border-radius:9px;padding:8px;text-align:center;overflow-x:auto}
+.animbox img{max-width:100%;height:auto;display:block;margin:0 auto}
+.swtbl{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:13px}
+.swtbl th,.swtbl td{padding:6px 8px;border-bottom:1px solid var(--line);
+  text-align:right;font-family:var(--mono)}
+.swtbl th{color:var(--dim);font-size:10px;text-transform:uppercase;letter-spacing:.4px}
+.swtbl td:first-child,.swtbl th:first-child{text-align:left}
+.swtbl tr.cur{background:#12324f}
+.swtbl tr.cur td{color:#cfe6ff;font-weight:600}
+.swtbl tr.bad td{color:var(--bad)}
+.swtbl tbody tr{cursor:pointer}
+.swbox{max-height:280px;overflow-y:auto}
+/* ---- 主视图切换（单点 / 动画）---- */
+.viewbar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.viewtab{background:var(--panel);border:1px solid var(--line);color:var(--dim);
+  border-radius:10px;padding:11px 22px;font-size:13.5px;font-weight:600;cursor:pointer;
+  transition:all .15s}
+.viewtab:hover{border-color:#3a5a80;color:var(--fg)}
+.viewtab.on{background:#12324f;border-color:#2f6ba8;color:#9fd0ff}
+.viewhint{font-size:11px;color:var(--dim);margin-left:auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>postGW 谱函数工作台</h1>
+  <span class="sub">DLR 协变 postGW 格林函数 → 解析延拓 → A(k,ω) / 费米面 / DOS，APS 出版级出图 · 公网只读演示快照</span>
+  <a class="sub" href="gallery.html" style="text-decoration:none;border:1px solid var(--line);padding:2px 10px;border-radius:8px">APS 四联图画廊 →</a>
+</header>
+
+<!-- 远程访客横幅：非本机访问时由 init()/applyAccessControl() 填充并显示（见 META.access）
+     ⚠️ 内容完全由 JS 按 remote_mode 生成（readonly / animate 两种文案不同），
+        这里只留空壳，避免两份文案在 HTML 与 JS 之间漂移。 -->
+<div class="card" id="ronly" style="display:none;border-color:#5a3f18;background:#241d13">
+  <div id="ronly_body" style="font-size:13.5px;color:#ffcf8a;line-height:1.7"></div>
+</div>
+
+<!-- ===================== 左栏：参数（粘性 + 独立滚动，避免整体过长）===================== -->
+<div class="side">
+  <div class="card">
+    <h2>① 数据来源</h2>
+    <label>格林函数 npz</label>
+    <select id="npz"></select>
+    <div class="hint" id="npzinfo"></div>
+
+    <label class="chk"><input type="checkbox" id="recompute"> 重新计算格林函数（改物理参数时必须勾）</label>
+    <div class="warnbox" id="rcwarn" style="display:none">
+      ⚠️ 这一步是计算主体：<b>L=16 约 25 分钟</b>（8 进程墙钟，实测 1.5 h 的顶点扫描已优化）。
+      期间可继续用页面上其他功能，但本服务同一时刻只跑一个任务。
+    </div>
+
+    <details id="physbox">
+      <summary>物理参数（L, β, U, μ, t, t′, t″）</summary>
+      <div class="hint" style="margin:8px 0 2px">
+        仅在勾选「重新计算」时生效；否则以所选 npz 里的参数为准。
+      </div>
+      <div class="row">
+        <div><label>L（格点边长）</label>
+          <select id="L"><option>4</option><option>8</option><option>12</option>
+            <option selected>16</option></select></div>
+        <div><label>μ（化学势）</label><input type="number" id="mu" value="0.5" step="0.1"></div>
+      </div>
+      <div class="row3">
+        <div><label>β</label><input type="number" id="beta" value="4.0" step="1"></div>
+        <div><label>U</label><input type="number" id="U" value="2.0" step="0.5"></div>
+        <div><label>nproc</label><input type="number" id="nproc" value="8" min="1" max="8"></div>
+      </div>
+      <div class="row3">
+        <div><label>t</label><input type="number" id="t" value="1.0" step="0.1"></div>
+        <div><label>t′</label><input type="number" id="tp" value="0.0" step="0.05"></div>
+        <div><label>t″</label><input type="number" id="tpp" value="0.0" step="0.05"></div>
+      </div>
+      <div class="hint">💡 t′=t″=0 时 nodal 与 antinodal 完全简并（ξ 都=−μ），
+        看不到谱函数分化。想看分化就设 t′=−0.25 并重新计算。</div>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>② 解析延拓</h2>
+    <label>后端方法</label>
+    <select id="method"></select>
+    <div class="methodnote" id="mnote"></div>
+
+    <label>k 点范围</label>
+    <select id="kscope"></select>
+    <div class="hint" id="kshint"></div>
+
+    <label>η 展宽（实频虚部）：<span id="etav">0.050</span></label>
+    <input type="range" id="eta" min="0.005" max="0.5" step="0.005" value="0.05">
+    <div class="hint">越小峰越锐、越接近真实谱，但对数据噪声越敏感；0.05 是本数据的经验平衡点。</div>
+
+    <label>Matsubara 频率点数 n_iw</label>
+    <input type="number" id="n_iw" value="64" min="8" max="600">
+    <div class="hint">只用最低 N 个正频率。64 已足够定形；点数越多 Padé/MiniPole 越易生虚假极点。</div>
+
+    <div class="row">
+      <div><label>实频点数</label><input type="number" id="nw" value="321" min="61" max="1201"></div>
+      <div><label>实频范围 ±ω</label><input type="number" id="wmax" value="8" min="2" max="40" step="1"></div>
+    </div>
+
+    <label>Fig D 交叉验证后端（多选）</label>
+    <div id="compare" style="display:flex;gap:10px;flex-wrap:wrap;font-size:12.5px;margin-top:2px"></div>
+  </div>
+
+  <div class="card">
+    <button id="run">开始计算并出图</button>
+    <div class="hint" id="est" style="margin-top:8px"></div>
+    <button class="ghost" id="reset" style="margin-top:8px">恢复默认参数</button>
+  </div>
+
+  <!-- ============ ③ 参数扫描 → 动画 ============ -->
+  <div class="card" style="border-color:#2f6ba8">
+    <h2 style="color:#9fd0ff">③ 参数扫描 → 动画</h2>
+    <div class="hint" style="margin-bottom:9px">
+      固定其余参数，只变一个参数（当前支持 <b>μ</b>），逐点重算 postGW 并生成
+      谱函数/DOS/费米面的动画。<br>
+      ⚠️ 每个点都是<b>完整自洽求解</b>（μ 改 ξ→改 Σ，无捷径），是小时级任务。
+    </div>
+
+    <label>扫描参数</label>
+    <select id="sw_var"><option value="mu">μ（化学势）</option></select>
+
+    <div class="row3">
+      <div><label>μ 起</label><input type="number" id="sw_from" value="-1.0" step="0.1"></div>
+      <div><label>μ 止</label><input type="number" id="sw_to" value="1.0" step="0.1"></div>
+      <div><label>点数</label><input type="number" id="sw_n" value="11" min="2" max="41"></div>
+    </div>
+    <div class="hint" id="sw_mus"></div>
+
+    <div class="row3">
+      <div><label>L</label>
+        <select id="sw_L"><option>4</option><option selected>8</option>
+          <option>12</option><option>16</option></select></div>
+      <div><label>β</label><input type="number" id="sw_beta" value="8.0" step="1"></div>
+      <div><label>U</label><input type="number" id="sw_U" value="2.0" step="0.5"></div>
+    </div>
+    <div class="row3">
+      <div><label>t</label><input type="number" id="sw_t" value="1.0" step="0.1"></div>
+      <div><label>t′</label><input type="number" id="sw_tp" value="0.0" step="0.05"></div>
+      <div><label>t″</label><input type="number" id="sw_tpp" value="0.0" step="0.05"></div>
+    </div>
+
+    <details style="margin-top:8px">
+      <summary>延拓与动画选项</summary>
+      <div style="margin-top:8px">
+        <label>延拓后端</label><select id="sw_method"></select>
+        <div class="methodnote" id="sw_mnote" style="margin-top:6px"></div>
+        <div class="row">
+          <div><label>η 展宽</label><input type="number" id="sw_eta" value="0.05" step="0.005" min="0.005" max="1"></div>
+          <div><label>帧率 fps</label><input type="number" id="sw_fps" value="3" min="1" max="12"></div>
+        </div>
+        <label class="chk"><input type="checkbox" id="sw_gif" checked> 同时生成 GIF</label>
+      </div>
+    </details>
+
+    <div class="warnbox" id="sw_cost" style="display:none"></div>
+    <button id="sw_run" style="margin-top:10px">开始扫描并生成动画</button>
+    <div class="hint" id="sw_est" style="margin-top:8px"></div>
+  </div>
+
+  <!-- ============ ④ 已有扫描数据 → 动画（不重算）============ -->
+  <div class="card" style="border-color:#3ddc97">
+    <h2 style="color:#3ddc97">④ 已有扫描数据 → 动画</h2>
+    <div class="hint" style="margin-bottom:9px">
+      对<b>已经算好的</b>扫描数据重新生成/更新动画，<b>不重算格林函数</b>（秒~分钟级）。
+      换延拓后端、改 η/帧率、或第一次补生成动画时用这个。
+    </div>
+
+    <label>选择已有扫描</label>
+    <select id="an_tag"><option value="">（加载中…）</option></select>
+    <div class="hint" id="an_info" style="margin-top:4px"></div>
+
+    <div class="row" style="margin-top:8px">
+      <div><label>延拓后端</label><select id="an_method"></select></div>
+      <div><label>帧率 fps</label><input type="number" id="an_fps" value="3" min="1" max="12"></div>
+    </div>
+    <div class="row">
+      <div><label>η 展宽</label><input type="number" id="an_eta" value="0.05" step="0.005" min="0.005" max="1"></div>
+      <div><label>实频点数</label><input type="number" id="an_nw" value="241" min="61" max="1201"></div>
+    </div>
+    <label class="chk"><input type="checkbox" id="an_gif" checked> 生成 GIF</label>
+    <label class="chk"><input type="checkbox" id="an_player_only">
+      仅重建播放器（帧图已存在时，秒级）</label>
+    <label class="chk"><input type="checkbox" id="an_embed" checked>
+      播放器帧图内嵌（自包含单文件，可单独复制/交付）</label>
+
+    <div class="warnbox" id="an_cost" style="display:none"></div>
+    <!-- 远程访客资源门禁实时提示（由 anEstimate 按 META.resource 填充） -->
+    <div class="hint" id="an_res" style="display:none;margin-top:8px;
+      padding:8px 10px;border-left:3px solid var(--warn);background:#1c2230"></div>
+    <button id="an_run" style="margin-top:10px;background:#3ddc97">生成 / 更新动画</button>
+    <div class="hint" id="an_est" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<!-- ===================== 右栏：结果 ===================== -->
+<div>
+  <div class="card">
+    <h2>运行状态</h2>
+    <div class="statusbar">
+      <span class="badge b-pending" id="badge">空闲</span>
+      <span class="stage" id="stage">尚未开始任务</span>
+      <span class="eta" id="elapsed"></span>
+    </div>
+    <div class="bar"><i id="bar"></i></div>
+    <div class="hint" id="progtext" style="margin-top:7px"></div>
+  </div>
+
+  <!-- 主视图切换：单点分析 vs 扫描动画。两类工作流产物不同，分开避免互相遮挡 -->
+  <div class="viewbar">
+    <div class="viewtab on" id="vt_single" onclick="switchView('single')">📊 单点分析</div>
+    <div class="viewtab" id="vt_anim" onclick="switchView('anim')">🎬 扫描动画</div>
+    <span class="viewhint" id="viewhint"></span>
+  </div>
+
+  <!-- ===== 视图 A：单点四联图 ===== -->
+  <div id="view_single">
+    <div class="card">
+      <h2>质量门禁 <span class="hint" style="text-transform:none;letter-spacing:0">
+        （本项目方法论：不轻信单一判据，五道独立验证）</span></h2>
+      <div id="gates" class="gates"></div>
+      <div class="empty" id="gatesEmpty">跑完任务后这里显示五道门禁的判定结果。</div>
+    </div>
+
+    <div class="card">
+      <h2>四联图（APS 出版级 · 已通过合规自检）</h2>
+      <div class="tabs" id="tabs"></div>
+      <div id="figarea">
+        <div class="empty">跑完任务后这里显示 Fig A–D。<br>
+          每张图同时输出 <b>pdf 矢量版</b>（投稿用）与 <b>600 dpi png</b>。</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>数值结果</h2>
+      <div id="result"><div class="empty">尚无结果。</div></div>
+    </div>
+  </div>
+
+  <!-- ===== 视图 B：扫描动画（常驻，不再 display:none）===== -->
+  <div id="view_anim" style="display:none">
+    <div class="card" id="animcard" style="border-color:#2f6ba8">
+      <h2 style="color:#9fd0ff">参数扫描动画
+        <span class="hint" style="text-transform:none;letter-spacing:0">
+          （每帧一个参数值，三面板：A(k,ω) / DOS / 费米面）</span></h2>
+      <div class="ctlbar" id="animctl"></div>
+      <div id="animarea" class="empty">
+        尚无扫描结果。<br>
+        用左栏「③ 参数扫描 → 动画」跑新扫描，或「④ 已有扫描数据 → 动画」对已算好的数据生成动画。
+      </div>
+      <div id="animtable"></div>
+      <div class="note" id="animnote"></div>
+      <div id="animlinks"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>运行日志</h2>
+    <div class="logs" id="logs">等待任务…</div>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>方法与踩坑记录（点击展开）</summary>
+      <div id="docs" style="font-size:12.5px;line-height:1.7;color:#c3ccdb"></div>
+    </details>
+  </div>
+</div>
+
+<div class="foot">
+  公网只读演示快照 · 数据发布时已冻结 &nbsp;|&nbsp;
+  本站不含任何计算功能；完整工作台在研究者的计算机上运行<br>
+  如需复现或新参数计算，请联系数据提供者。
+  
+</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+let META=null, JOB=null, POLL=null, TAB='A', START=0, SWEEP=false, VIEW='single';
+
+// ---------- 初始化 ----------
+async function init(){
+  let r;
+  try{
+    r=await apiFetch('api/meta');
+  }catch(e){
+    document.body.innerHTML='<div style="padding:40px;font:14px/1.7 sans-serif">'
+      +'无法连接服务：'+esc(String(e))+'</div>';
+    return;
+  }
+  // ⚠️ 401 = 需要令牌而未带（或令牌错）。必须显式引导，否则后续
+  //    META.methods 为 undefined 会抛异常 → 整页白屏，访客不知道发生了什么。
+  if(r.status===401){
+    const t=prompt('本服务需要访问令牌。\n\n请输入令牌（向服务提供者索取）：');
+    if(t && t.trim()){
+      TOKEN=t.trim();
+      try{ sessionStorage.setItem('pgw_token', TOKEN); }catch(e){}
+      // 用带令牌的地址重新加载，确保 img/a 等子资源也能带上
+      location.replace(location.pathname+'?token='+encodeURIComponent(TOKEN));
+      return;
+    }
+    document.body.innerHTML='<div style="padding:40px;font:14px/1.7 sans-serif;'
+      +'max-width:640px;margin:0 auto">'
+      +'<h2 style="font-size:18px">需要访问令牌</h2>'
+      +'<p>本工作台已启用令牌鉴权。请在网址后附加 <code>?token=&lt;令牌&gt;</code> 访问，'
+      +'例如：</p>'
+      +'<p><code style="background:#f2f2f2;padding:3px 6px;border-radius:4px">'
+      +esc(location.origin+location.pathname+'?token=你的令牌')+'</code></p>'
+      +'<p><button onclick="location.reload()" style="padding:8px 18px;'
+      +'font-size:14px;cursor:pointer">重新输入令牌</button></p></div>';
+    return;
+  }
+  if(!r.ok){
+    document.body.innerHTML='<div style="padding:40px;font:14px/1.7 sans-serif">'
+      +'加载元数据失败：HTTP '+r.status+'</div>';
+    return;
+  }
+  META=await r.json();
+  // 后端下拉（可用在前，不可用置灰但保留+说明原因）
+  const ms=META.methods;
+  $('method').innerHTML=ms.filter(m=>m.available)
+      .map(m=>`<option value="${m.id}">${m.label}</option>`).join('')
+    +`<optgroup label="本机不可用">`+ms.filter(m=>!m.available)
+      .map(m=>`<option value="${m.id}" disabled>${m.label} — 不可用</option>`).join('')
+    +`</optgroup>`;
+  $('compare').innerHTML=ms.filter(m=>m.available)
+    .map(m=>`<label style="display:flex;align-items:center;gap:5px;margin:0">
+      <input type="checkbox" value="${m.id}" style="accent-color:var(--acc)"
+        ${META.defaults.compare.includes(m.id)?'checked':''}>${m.label}</label>`).join('');
+  $('kscope').innerHTML=META.kscopes
+    .map(k=>`<option value="${k.id}" ${k.id===META.defaults.kscope?'selected':''}>${k.label}</option>`).join('');
+  // npz 下拉
+  $('npz').innerHTML=META.npzs.length
+    ? META.npzs.map(n=>`<option value="${n.name}">${n.name}</option>`).join('')
+    : `<option value="">（benchmark 目录下没有 green_postGW_*.npz）</option>`;
+  for(const k of ['mu','beta','U','t','tp','tpp','nproc','eta','n_iw','nw','wmax'])
+    if(META.defaults[k]!==undefined) $(k).value=META.defaults[k];
+  $('L').value=String(META.defaults.L);
+  onMethod(); onNpz(); onKs(); onRecompute(); estimate();
+  // ---- 扫描面板初始化 ----
+  $('sw_method').innerHTML=ms.filter(m=>m.available)
+      .map(m=>`<option value="${m.id}" ${m.id==='minipole'?'selected':''}>${m.label}</option>`).join('')
+    +`<optgroup label="本机不可用">`+ms.filter(m=>!m.available)
+      .map(m=>`<option value="${m.id}" disabled>${m.label} — 不可用</option>`).join('')
+    +`</optgroup>`;
+  onSwMethod(); swMus(); swEstimate(); loadSweeps();
+  // ---- 只读访客：显示横幅 + 禁用所有提交按钮（服务端也会 403 兜底）----
+  applyAccessControl();
+  // ---- ④ 已有数据→动画 面板初始化 ----
+  $('an_method').innerHTML=ms.filter(m=>m.available)
+      .map(m=>`<option value="${m.id}" ${m.id==='minipole'?'selected':''}>${m.label}</option>`).join('')
+    +`<optgroup label="本机不可用">`+ms.filter(m=>!m.available)
+      .map(m=>`<option value="${m.id}" disabled>${m.label} — 不可用</option>`).join('')
+    +`</optgroup>`;
+  anEstimate();
+  // 文档
+  $('docs').innerHTML=DOCS;
+  // 事件
+  $('method').onchange=()=>{onMethod();estimate()};
+  $('kscope').onchange=()=>{onKs();estimate()};
+  $('npz').onchange=onNpz;
+  $('recompute').onchange=()=>{onRecompute();estimate()};
+  $('eta').oninput=()=>{$('etav').textContent=(+$('eta').value).toFixed(3);estimate()};
+  ['L','mu','nproc','n_iw','nw','wmax'].forEach(i=>$(i).onchange=estimate);
+  $('run').onclick=run; $('reset').onclick=reset;
+  // 扫描事件
+  $('sw_method').onchange=onSwMethod;
+  ['sw_from','sw_to','sw_n'].forEach(i=>$(i).oninput=()=>{swMus();swEstimate()});
+  ['sw_L','sw_beta','sw_U','sw_t','sw_tp','sw_tpp'].forEach(i=>$(i).onchange=swEstimate);
+  $('sw_run').onclick=swRun;
+  // ④ 动画事件
+  $('an_tag').onchange=()=>{onAnTag();anEstimate()};
+  ['an_method','an_fps','an_eta','an_nw'].forEach(i=>$(i).onchange=anEstimate);
+  $('an_player_only').onchange=anEstimate;
+  $('an_run').onclick=anRun;
+}
+
+// ============ 访问令牌 ============
+// 服务端 ACCESS_TOKEN 非空时，非本机请求必须带令牌，否则所有 api/* 返回 401。
+// ⚠️ 令牌必须同时附加到两类请求：
+//    ① fetch() —— 可用 Authorization 头，但为简单统一走 ?token= 查询串；
+//    ② <img src> / <a href>（帧图、四联图、独立播放器）—— **无法设请求头**，
+//       只能靠查询串。若漏了这类，图会全部 401 裂图（本项目踩过相对路径裂图的坑）。
+// 令牌来源优先级：URL ?token= → sessionStorage（跨页跳转/新标签页仍能带上）。
+let TOKEN='';
+(function captureToken(){
+  try{
+    const q=new URLSearchParams(location.search).get('token');
+    if(q){ TOKEN=q; sessionStorage.setItem('pgw_token', q); }
+    else { TOKEN=sessionStorage.getItem('pgw_token')||''; }
+  }catch(e){ TOKEN=''; }
+})();
+/** 给任意 api/... 路径附加令牌（保留已有查询串）。 */
+function api(path){
+  if(!TOKEN) return path;
+  return path + (path.includes('?')?'&':'?') + 'token=' + encodeURIComponent(TOKEN);
+}
+/** fetch 包装：自动附令牌。所有 API 调用都应走这个。 */
+function apiFetch(path, opts){
+  return fetch(api(path), opts);
+}
+
+// ============ 远程访客访问控制 ============
+// 依据 META.access（服务端按 TCP 对端地址判定，无法伪造）。两级权限：
+//   can_submit  —— 可提交 postGW 重算/扫描（仅本机或 full 模式）
+//   can_animate —— 可对已有数据做延拓+动画（本机 / animate / full 模式）
+let CAN_SUBMIT=true, CAN_ANIMATE=true;
+function applyAccessControl(){
+  const acc=(META&&META.access)||{};
+  CAN_SUBMIT=(acc.can_submit!==false);
+  CAN_ANIMATE=(acc.can_animate!==false);
+  if(CAN_SUBMIT){ return; }                 // 本机/full 模式：不做任何限制
+
+  // 远程访客：显示横幅（文案按模式区分），禁用不允许的提交按钮
+  const box=$('ronly');
+  const body=$('ronly_body');
+  const ip=esc(acc.client_ip||'未知来源');
+  const res=(META&&META.resource)||{};
+  const resLine=(res.free_mem_gb!=null||res.cpu_load_pct!=null)
+    ? `<br><span style="opacity:.85">服务端当前：可用内存 ${
+        res.free_mem_gb!=null?res.free_mem_gb.toFixed(2)+' GB':'未知'}，CPU ${
+        res.cpu_load_pct!=null?res.cpu_load_pct.toFixed(0)+'%':'未知'}。`
+      + `门禁：内存 <${res.min_free_mem_gb} GB 或 CPU >${res.max_cpu_load_pct}% 时`
+      + `暂时拒绝动画任务（返回 503），以免拖垮正在跑的长计算。</span>` : '';
+
+  if(CAN_ANIMATE){
+    body.innerHTML=`<b>🌐 远程访客模式（可生成动画）</b> — 来源 ${ip}。<br>`
+      +`可以<b>查看</b>已有结果、四联图、动画播放器，并<b>对已生成的格林函数数据</b>`
+      +`做解析延拓 / 重绘动画（秒~分钟级）。<br>`
+      +`<b>不能</b>提交 postGW 重算或 μ 扫描——那是数十小时的重任务，只能在服务所在机器上发起。`
+      +`<br><span style="opacity:.85">远程动画任务并行度上限 `
+      +`${acc.remote_nproc_max||2} 核、同时最多 ${acc.remote_max_concurrent||1} 个。</span>`
+      +resLine;
+    box.style.display='block';
+    // 只禁用重算/扫描两个按钮，动画按钮保持可用
+    [['run','开始计算并出图'],['sw_run','开始扫描并生成动画']].forEach(([id])=>{
+      const b=$(id); if(!b) return;
+      b.disabled=true; b.textContent='🔒 远程不可提交重算/扫描';
+      b.title='远程模式：只允许对已有数据生成动画，不能触发 postGW 重算或 μ 扫描';
+    });
+    // 动画面板：tag/method 等参数必须可选，只锁住与重算相关的左栏参数
+    ['npz','method','kscope','sw_L','sw_beta','sw_U','sw_t','sw_tp','sw_tpp',
+     'sw_from','sw_to','sw_n'].forEach(id=>{ const el=$(id); if(el) el.disabled=true; });
+    // nproc 夹到远程上限（服务端也会夹，前端先对齐避免困惑）
+    const np=$('nproc');
+    if(np && acc.remote_nproc_max && +np.value > acc.remote_nproc_max){
+      np.value=acc.remote_nproc_max;
+    }
+  }else{
+    body.innerHTML=`<b>👁 只读访客模式</b> — 来源 ${ip}。<br>`
+      +`可以<b>查看</b>已有结果、四联图、动画播放器并下载图片；`
+      +`<b>不能提交</b>计算/扫描/动画生成任务（提交按钮已禁用；本站为静态演示，无计算功能）。`
+      +`<br><span style="opacity:.8">原因：本站是已有计算结果的静态演示快照，`
+      +`计算全部在研究者的计算机上完成，不对外开放。</span>`;
+    box.style.display='block';
+    [['run','开始计算并出图'],['sw_run','开始扫描并生成动画'],
+     ['an_run','生成 / 更新动画']].forEach(([id])=>{
+      const b=$(id); if(!b) return;
+      b.disabled=true; b.textContent='🔒 只读访客（本机才能提交）';
+      b.title='远程只读模式：计算跑在服务所在机器上，请到那台机器操作';
+    });
+    ['npz','method','kscope','sw_L','sw_beta','sw_U','sw_t','sw_tp','sw_tpp',
+     'sw_from','sw_to','sw_n','an_tag','an_method'].forEach(id=>{
+      const el=$(id); if(el) el.disabled=true;
+    });
+  }
+}
+// 提交守卫：按操作类型判定。返回 true 才允许发请求。
+function guardSubmit(kind){
+  if(kind==='animate'){
+    if(CAN_ANIMATE) return true;
+    alert('你当前是只读访客，不能生成动画。\n\n'
+        +'服务端为只读模式：可查看已有结果与动画播放器，但不能提交任何任务。');
+    return false;
+  }
+  if(CAN_SUBMIT) return true;
+  alert('远程访客不能提交 postGW 重算或 μ 扫描。\n\n'
+      +'这类任务是数十小时的重计算，只能在服务所在的那台机器上发起。\n'
+      +'你可以使用「已有数据生成动画」对已算好的格林函数做解析延拓与绘图。');
+  return false;
+}
+
+// ============ ④ 已有扫描数据 → 动画 ============
+let SWEEPS=[];
+function onAnTag(){
+  const t=$('an_tag').value;
+  const s=SWEEPS.find(x=>x.tag===t);
+  const box=$('an_info');
+  if(!s){ box.innerHTML='<span style="color:var(--dim)">选一个已完成的扫描</span>'; return; }
+  const p=s.params||{};
+  box.innerHTML=`L=${s.params.L} β=${p.beta} U=${p.U} · 完成 <b>${s.n_done}/${s.n_total}</b> 个 μ 点`
+    +(s.mu_min!==null&&s.mu_min!==undefined?` · μ∈[${(+s.mu_min).toFixed(2)}, ${(+s.mu_max).toFixed(2)}]`:'')
+    +`<br>${s.has_animation?`<span style="color:var(--ok)">已有动画（${s.n_frames} 帧${s.has_gif?'+GIF':''}），将更新</span>`
+                           :'<span style="color:var(--warn)">尚无动画，将首次生成</span>'}`;
+  // 仅重建播放器：只有已有帧图时可用
+  $('an_player_only').disabled=!s.has_animation;
+  if(!s.has_animation && $('an_player_only').checked) $('an_player_only').checked=false;
+}
+function anEstimate(){
+  const t=$('an_tag').value;
+  const s=SWEEPS.find(x=>x.tag===t);
+  const box=$('an_cost'), est=$('an_est');
+  if(!s){ est.textContent=''; box.style.display='none'; return; }
+  const po=$('an_player_only').checked && s.has_animation;
+  const n=s.n_done||s.n_total||1;
+  if(po){
+    est.innerHTML='仅重建播放器：秒级（帧图已存在，只做 base64 内嵌/重排）';
+    box.style.display='none';
+  }else{
+    const per=s.params.L<=8?25:75;  // 每帧延拓+周期化渲染实测
+    const sec=per*n;
+    est.innerHTML=`完整重生成：${n} 帧 × ~${per}s ≈ <b>${sec<90?sec+' 秒':(sec/60).toFixed(1)+' 分钟'}</b>`
+      +`<br><span style="opacity:.75">不重算格林函数（npz 已落盘）</span>`;
+    box.style.display = sec>300 ? 'block':'none';
+    if(sec>300) box.innerHTML=`⚠️ 约 ${(sec/60).toFixed(0)} 分钟：逐帧重新解析延拓。若只想换播放器（帧图不变），勾「仅重建播放器」可秒级完成。`;
+  }
+  // ⭐ 远程访客：提示资源门禁，避免提交后才收到 503 一头雾水。
+  //    阈值一律读 META.resource（服务端下发），前端不再各写一份，杜绝漂移。
+  if(!CAN_SUBMIT && CAN_ANIMATE && META && META.resource){
+    const R=META.resource;
+    const acc=(META.access)||{};
+    const lightThr=(R.light_min_free_mem_gb!=null?R.light_min_free_mem_gb:0.4);
+    const memOk=(R.free_mem_gb==null)||(R.free_mem_gb>=(po?lightThr:R.min_free_mem_gb));
+    const cpuOk=po||(R.cpu_load_pct==null)||(R.cpu_load_pct<=R.max_cpu_load_pct);
+    const tip=document.getElementById('an_res');
+    const txt = (memOk&&cpuOk)
+      ? `本机资源充足（可用内存 ${R.free_mem_gb!=null?R.free_mem_gb.toFixed(2)+' GB':'?'}，CPU ${R.cpu_load_pct!=null?R.cpu_load_pct.toFixed(0)+'%':'?'}），可以提交。`
+      : `⚠️ 本机正在跑重计算（可用内存 ${R.free_mem_gb!=null?R.free_mem_gb.toFixed(2)+' GB':'?'}${!po?'，CPU '+(R.cpu_load_pct!=null?R.cpu_load_pct.toFixed(0)+'%':'?'):''}）。`
+        + (po
+           ? '轻量操作通常仍可执行。'
+           : `完整延拓需要 ≥${R.min_free_mem_gb} GB 空闲内存，现在提交会被拒（503）。可勾「仅重建播放器」或稍后再试。`);
+    if(tip){ tip.innerHTML=txt; tip.style.display='block'; }
+    // nproc 提示：远程有上限
+    if(acc.remote_nproc_max){
+      const np=$('nproc');
+      if(np) np.title='远程任务并行度上限 '+acc.remote_nproc_max+' 核（服务端会夹取）';
+    }
+  }
+}
+async function anRun(){
+  if(!guardSubmit('animate')) return;        // 只读访客：不发请求（animate 模式放行）
+  const t=$('an_tag').value;
+  if(!t){ alert('请先选择一个已有扫描'); return; }
+  const s=SWEEPS.find(x=>x.tag===t);
+  const po=$('an_player_only').checked;
+  if(po && !(s&&s.has_animation)){ alert('该扫描还没有帧图，无法「仅重建播放器」，请取消勾选'); return; }
+  const body={tag:t,method:$('an_method').value,nproc:+$('nproc').value,
+    eta:+$('an_eta').value,nw:+$('an_nw').value,fps:+$('an_fps').value,
+    make_gif:$('an_gif').checked,embed:$('an_embed').checked,player_only:po};
+  if(!confirm(`${po?'仅重建播放器':'重新生成动画'}？\n\n扫描：${t}\n后端：${body.method}\n\n不重算格林函数（秒~分钟级）。`)) return;
+  $('an_run').disabled=true; $('an_run').textContent='提交中…';
+  try{
+    const r=await apiFetch('api/animate',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const j=await r.json();
+    if(!r.ok){ alert(j.error||('HTTP '+r.status)); return; }
+    JOB=j.job; SWEEP=true; START=Date.now();
+    $('run').disabled=true; $('sw_run').disabled=true;
+    clearResults(true);
+    addLog(`动画任务已提交（${t}，${po?'仅播放器':'完整重生成'}），预估 ${fmt(j.estimate_s||0)}`,'g');
+    poll();
+  }catch(e){ alert('提交失败：'+e); }
+  finally{ $('an_run').disabled=false; $('an_run').textContent='生成 / 更新动画'; }
+}
+
+// ============ 扫描 → 动画 ============
+function swMus(){
+  const lo=+$('sw_from').value, hi=+$('sw_to').value, n=Math.max(2,+$('sw_n').value||2);
+  if(!(hi>lo)){ $('sw_mus').innerHTML='<span style="color:var(--bad)">μ 止必须大于 μ 起</span>'; return []; }
+  const step=(hi-lo)/(n-1), out=[];
+  for(let i=0;i<n;i++) out.push(+(lo+i*step).toFixed(6));
+  const hasHalf=out.some(m=>Math.abs(m-(+$('sw_U').value/2))<1e-9);
+  $('sw_mus').innerHTML=`μ = ${out.map(m=>m.toFixed(2)).join(', ')}<br>`
+    +`步长 ${step.toFixed(3)}`
+    +(hasHalf?' · <span style="color:var(--ok)">含半满 μ=U/2（绝对精度锚点）✅</span>'
+             :' · <span style="color:var(--warn)">不含半满 μ=U/2，将失去绝对精度锚点</span>');
+  return out;
+}
+function onSwMethod(){
+  const m=META.methods.find(x=>x.id===$('sw_method').value);
+  $('sw_mnote').className='methodnote'+(m&&m.available?'':' unavail');
+  $('sw_mnote').innerHTML=m?m.note:'';
+  swEstimate();
+}
+async function swEstimate(){
+  const mus=swMus();
+  if(mus.length<2){$('sw_est').textContent='';return}
+  const qs=new URLSearchParams({L:$('sw_L').value,beta:$('sw_beta').value,
+    U:$('sw_U').value,nproc:$('nproc').value,mus:mus.join(',')});
+  try{
+    const r=await apiFetch('api/sweep_estimate?'+qs.toString());
+    const j=await r.json();
+    if(!r.ok){
+      $('sw_est').innerHTML=`<span style="color:var(--warn)">${esc(j.error||'无法预估')}</span>`;
+      $('sw_cost').style.display='none'; return;
+    }
+    const tot=j.total_s;
+    $('sw_est').innerHTML=`预估：单点 <b>${(j.per_mu_s/60).toFixed(1)} min</b> × ${j.n_mu} 点 = `
+      +`<b>${(j.sweep_s/3600).toFixed(2)} h</b> ＋ 动画 ${(j.anim_s/60).toFixed(0)} min`
+      +` ⇒ 合计 <b>${(tot/3600).toFixed(2)} h</b><br>`
+      +`<span style="opacity:.75">${esc(j.measured_from||'')}</span>`;
+    // 超过服务端硬上限时给醒目警告（服务端会直接拒绝 413）
+    // ⚠️ 上限从 api/meta 读取（META.max_sweep_hours），不在前端硬编码——
+    //    曾因前端写死 8、服务端改 48 而不一致（L=16 前端误报超限、服务端却放行）。
+    const hardLimit=(META&&META.max_sweep_hours)||48;
+    const box=$('sw_cost');
+    if(tot/3600>hardLimit){
+      box.style.display='block';
+      box.innerHTML=`⚠️ 预估 <b>${(tot/3600).toFixed(1)} 小时</b> 超过服务端上限 ${hardLimit} 小时，`
+        +`提交会被拒绝。请减小 L、减少 μ 点数，或分批跑（扫描逐点落盘，可分多次续算）。`;
+    }else if(tot/3600>1){
+      box.style.display='block';
+      box.innerHTML=`⚠️ 这是<b>小时级任务</b>（约 ${(tot/3600).toFixed(2)} h，服务端上限 ${hardLimit} h）。`
+        +`每个 μ 点都要完整重解 postGW 自洽方程，无法跳过。<br>`
+        +`好消息：逐点落盘，中途取消/服务重启后<b>重跑同样参数会自动续算</b>，已完成点不重算。`;
+    }else box.style.display='none';
+  }catch(e){$('sw_est').textContent='预估失败：'+e}
+}
+async function swRun(){
+  if(!guardSubmit('run')) return;            // 远程访客：不能提交扫描
+  const mus=swMus();
+  if(mus.length<2){alert('μ 点数不足');return}
+  const body={L:+$('sw_L').value,beta:+$('sw_beta').value,U:+$('sw_U').value,
+    t:+$('sw_t').value,tp:+$('sw_tp').value,tpp:+$('sw_tpp').value,
+    mus:mus,nproc:+$('nproc').value,method:$('sw_method').value,
+    eta:+$('sw_eta').value,fps:+$('sw_fps').value,make_gif:$('sw_gif').checked};
+  if(!confirm(`确认启动 μ 扫描？\n\nL=${body.L} β=${body.beta} U=${body.U}\n`
+    +`μ: ${mus[0]} → ${mus[mus.length-1]}（${mus.length} 点）\n\n`
+    +`这是小时级任务（见预估），期间不能跑其他计算。`)) return;
+  $('sw_run').disabled=true; $('sw_run').textContent='提交中…';
+  try{
+    const r=await apiFetch('api/sweep',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const j=await r.json();
+    if(!r.ok){alert(j.error||('HTTP '+r.status));
+      $('sw_run').disabled=false;$('sw_run').textContent='开始扫描并生成动画';return}
+    JOB=j.job; SWEEP=true; START=Date.now();
+    // 运行期间两个提交按钮都禁用；由 poll() 在任务结束时统一恢复
+    // （不在 finally 里恢复：finally 会在 poll 启动后立刻执行，等于没禁用）
+    $('run').disabled=true; $('sw_run').disabled=true;
+    clearResults(true);
+    addLog(`扫描已提交（${j.n_mu} 点），预估 ${(j.estimate_s/3600).toFixed(2)} 小时`,'g');
+    poll();
+  }catch(e){
+    alert('提交失败：'+e);
+    $('sw_run').disabled=false; $('sw_run').textContent='开始扫描并生成动画';
+  }
+}
+async function loadSweeps(){
+  try{
+    const r=await apiFetch('api/sweeps'); const j=await r.json();
+    SWEEPS=j.sweeps||[];
+    // ---- ④ 面板下拉：只列有已完成点的扫描 ----
+    const usable=SWEEPS.filter(s=>s.n_done>=1);
+    const sel=$('an_tag');
+    sel.innerHTML = usable.length
+      ? usable.map(s=>`<option value="${esc(s.tag)}">${esc(s.tag)} · ${s.n_done}/${s.n_total}点 · L${s.params.L}β${s.params.beta}</option>`).join('')
+      : `<option value="">（暂无已完成的扫描）</option>`;
+    onAnTag(); anEstimate();
+    // ---- 已有动画直达链接（服务重启后仍可看）----
+    // ⚠️ 渲染进**固定容器** #animlinks，不要 appendChild（旧写法每次 loadSweeps
+    //    都往 animcard 追加一个 details，重复调用会堆叠出多份）。
+    const withAnim=SWEEPS.filter(s=>s.has_animation);
+    const box=$('animlinks');
+    if(box){
+      box.innerHTML = withAnim.length
+        ? '<div style="font-size:12px;margin-top:6px"><b style="color:var(--dim)">已有动画（点开独立播放器）：</b>'
+          + withAnim.map(s=>`<div style="margin:4px 0">
+              <a href="${api(`api/anim/tag/${encodeURIComponent(s.tag)}/player.html`)}"
+                 target="_blank" rel="noopener">${esc(s.tag)}</a>
+              <span style="color:var(--dim)"> · ${s.n_frames} 帧${s.has_gif?' · GIF':''}
+              · ${esc(s.generated||'')}</span></div>`).join('')
+          + '</div>'
+        : '';
+    }
+  }catch(e){/* 忽略：非关键功能 */}
+}
+function renderSweep(s){
+  switchView('anim');   // 扫描/动画任务：切到动画视图（animcard 常驻于此视图内）
+  const area=$('animarea'), ctl=$('animctl');
+  const sw=s.sweep;
+  if(s.status==='running'){
+    const pc=s.total>0?(100*s.done/s.total):0;
+    area.innerHTML=`<div class="empty"><span class="spin"></span>`
+      +`${esc(s.stage||'扫描中')}<br><span style="font-family:var(--mono)">`
+      +`${(+s.done).toFixed(2)} / ${s.total} 点（${pc.toFixed(1)}%）</span></div>`;
+    ctl.innerHTML=`<button class="ghost" id="cancel">请求取消扫描</button>`
+      +`<span class="hint">取消只停止后续 μ 点，已完成点仍有效可续算</span>`;
+    const c=$('cancel'); if(c) c.onclick=swCancel;
+    return;
+  }
+  if(!sw||!sw.rows){ area.innerHTML='<div class="empty">无扫描结果。</div>'; return; }
+  const rows=sw.rows.filter(r=>r.n_post!==undefined&&!r.error);
+  if(!rows.length){ area.innerHTML='<div class="errbox">没有成功完成的 μ 点。</div>'; return; }
+  ctl.innerHTML=`<button id="swplay">▶ 播放</button>`
+    +`<button class="ghost" id="swprev">◀</button><button class="ghost" id="swnext">▶</button>`
+    +`<input type="range" id="swslider" min="0" max="${rows.length-1}" value="0" step="1">`
+    +`<span class="muval" id="swlbl"></span>`
+    +`<select id="swfps">${[1,2,3,5,8].map(f=>`<option value="${f}" ${f===3?'selected':''}>${f} fps</option>`).join('')}</select>`
+    +`<a class="ghost" id="swlink" target="_blank" rel="noopener" `
+    +`style="padding:6px 12px;border-radius:8px;text-decoration:none">↗ 独立播放器</a>`;
+  const tag=sw.tag;
+  // 裸路径与带令牌路径分开：需要在裸路径上再拼缓存参数时用 urlOfRaw
+  const urlOfRaw=i=>`api/anim/tag/${encodeURIComponent(tag)}/frames/frame_${String(i).padStart(3,'0')}.png`;
+  const urlOf=i=>api(urlOfRaw(i));
+  const link=$('swlink');
+  if(link&&tag) link.href=api(`api/anim/tag/${encodeURIComponent(tag)}/player.html`);
+  let cur=0, playing=false, timer=null;
+  const show=i=>{
+    cur=i; const r=rows[i];
+    $('swslider').value=i;
+    $('swlbl').innerHTML=`μ = <b>${r.mu.toFixed(4)}</b> &nbsp; ${i+1}/${rows.length}`;
+    // ⚠️ 缓存参数必须**先**拼进路径再交给 api()：api() 会按路径里是否已有 '?'
+    //    决定用 '?' 还是 '&' 追加 token。若反过来（api() 之后再拼 ?t=），
+    //    会得到 `...png?token=X?t=123` 这种双问号 URL ⇒ 服务端解析出的 token
+    //    变成 "X?t=123" ⇒ 401 ⇒ 帧图全裂（实测过相对路径裂图的坑，同类问题）。
+    area.innerHTML=`<div class="animbox"><img src="${api(urlOfRaw(i)+'?t='+Date.now())}" alt="μ=${r.mu}"></div>`;
+    document.querySelectorAll('.swtbl tbody tr').forEach((tr,k)=>tr.classList.toggle('cur',k===i));
+    const tr=document.querySelector(`.swtbl tbody tr[data-i="${i}"]`);
+    if(tr) tr.scrollIntoView({block:'nearest'});
+  };
+  const play=()=>{playing=true;$('swplay').textContent='⏸ 暂停';
+    const f=parseInt($('swfps').value,10)||3;
+    timer=setInterval(()=>show((cur+1)%rows.length),Math.round(1000/f));};
+  const stop=()=>{playing=false;$('swplay').textContent='▶ 播放';
+    if(timer){clearInterval(timer);timer=null}};
+  $('swplay').onclick=()=>playing?stop():play();
+  $('swprev').onclick=()=>{stop();show((cur-1+rows.length)%rows.length)};
+  $('swnext').onclick=()=>{stop();show((cur+1)%rows.length)};
+  $('swslider').oninput=e=>{stop();show(+e.target.value)};
+  $('swfps').onchange=()=>{if(playing){stop();play()}};
+  // 数值表（数值全部读自各 μ 点 postGW 的实际返回值）
+  const bad=rows.filter(r=>r.n_diverged!==0);
+  let mono=0; for(let i=1;i<rows.length;i++) if(rows[i].n_post<rows[i-1].n_post-1e-9) mono++;
+  $('animtable').innerHTML=`<div class="swbox"><table class="swtbl"><thead><tr>`
+    +`<th>μ</th><th>n_post</th><th>ndiv</th><th>顶点残差</th><th>单点耗时</th><th>存储</th>`
+    +`</tr></thead><tbody>`
+    +rows.map((r,i)=>`<tr data-i="${i}" class="${r.n_diverged!==0?'bad':''}">`
+      +`<td>${r.mu.toFixed(4)}</td><td>${(+r.n_post).toFixed(10)}</td>`
+      +`<td>${r.n_diverged}</td><td>${(+r.vtx_worst).toExponential(2)}</td>`
+      +`<td>${r.wall_s?(r.wall_s/60).toFixed(1)+' min':'—'}</td>`
+      +`<td>${r.mb?r.mb.toFixed(1)+' MB':'—'}</td></tr>`).join('')
+    +`</tbody></table></div>`;
+  document.querySelectorAll('.swtbl tbody tr').forEach(tr=>
+    tr.onclick=()=>{stop();show(+tr.dataset.i)});
+  const gifNote=sw.has_gif?` · 已生成 GIF（可在独立播放器页面查看）`:'';
+  $('animnote').innerHTML=`<b>扫描级校验：</b> 完成 ${sw.n_done}/${sw.n_mu} 点`
+    +(sw.n_error?`，失败 ${sw.n_error} 点`:``)
+    +` ｜ ndiv≠0 的帧 ${bad.length} 个${bad.length?`（μ=${bad.map(b=>b.mu).join(', ')}）——这些帧物理上不可用，已标红`:'（全部真收敛 ✅）'}`
+    +` ｜ n_post 单调性 ${mono===0?'✅ 随 μ 单调递增':`❌ ${mono} 处违反`}`
+    +gifNote+(sw.animation_error?` ｜ ⚠️ 动画生成失败：${esc(sw.animation_error)}`:'')
+    +`<br><span style="opacity:.75">表中 n_post / ndiv / 顶点残差均读自各 μ 点 `
+    +`dlr_postgw 的实际返回值（存于 manifest.json），非从图上估读。</span>`;
+  // 预载帧图
+  rows.forEach((r,i)=>{const im=new Image();im.src=urlOf(i)});
+  show(0);
+}
+async function swCancel(){
+  if(!JOB) return;
+  if(!confirm('请求取消扫描？\n\n当前 μ 点会算完，之后的点不再计算。\n已完成的点仍保留，重跑同样参数可续算。')) return;
+  try{
+    const r=await apiFetch('api/cancel',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({job:JOB})});
+    const j=await r.json();
+    addLog(r.ok?('已发送取消请求：'+(j.note||'')):('取消失败：'+(j.error||r.status)),
+           r.ok?'w':'e');
+  }catch(e){addLog('取消请求异常：'+e,'e')}
+}
+
+function onMethod(){
+  const m=META.methods.find(x=>x.id===$('method').value);
+  $('mnote').className='methodnote'+(m&&m.available?'':' unavail');
+  $('mnote').innerHTML=m?`${m.note}${m.s_per_k?`<br><span style="opacity:.75">实测 ~${m.s_per_k}s / k 点</span>`:''}`:'';
+}
+function onKs(){
+  const k=META.kscopes.find(x=>x.id===$('kscope').value);
+  $('kshint').textContent=k?k.note:'';
+}
+function onNpz(){
+  const n=META.npzs.find(x=>x.name===$('npz').value);
+  $('npzinfo').innerHTML=n
+    ? `L=${n.L} β=${n.beta} μ=${n.mu} U=${n.U} t′=${n.tp} · ${n.mb} MB · n_post=${(+n.n_post).toFixed(10)}${n.n_diverged===0?' · ndiv=0 ✅':''}<br><span style="opacity:.7">生成于 ${n.generated||'?'}</span>`
+    : '无可用数据，请勾选「重新计算」。';
+  if(n){ // 让物理参数框反映该 npz 的实际参数
+    for(const k of ['L','mu','beta','U','t','tp','tpp']) if(n[k]!==undefined&&n[k]!==null) $(k).value=n[k];
+  }
+}
+function onRecompute(){
+  const on=$('recompute').checked;
+  $('rcwarn').style.display=on?'block':'none';
+  $('physbox').open=on;
+  $('npz').disabled=on;
+}
+function nK(){
+  const L=+$('L').value, s=$('kscope').value;
+  return s==='full'?L*L:(s==='sym'?Math.max(9,3*L+4):9);
+}
+function estimate(){
+  const m=META.methods.find(x=>x.id===$('method').value);
+  if(!m||!m.s_per_k){$('est').textContent='';return}
+  const L=+$('L').value, np=Math.max(1,Math.min(+$('nproc').value||1,8));
+  const nk=nK(); let s=nk*m.s_per_k/(nk>4?np:1);
+  if(m.id==='minipole'&&$('kscope').value==='full') s+=25;  // Fig A 周期化 192 点
+  s+=2;
+  const rc=$('recompute').checked;
+  let txt=`预估：${nk} 个 k 点 × ${m.s_per_k}s ÷ ${nk>4?np:1} 进程 ≈ ${fmt(s)}`;
+  if(rc) txt+=` ＋ 重算格林函数（L=${L} 约 ${L>=16?'25 分钟':L>=12?'12 分钟':'1–3 分钟'}）`;
+  $('est').textContent=txt;
+}
+function fmt(s){return s<90?`${s.toFixed(0)} 秒`:s<3600?`${(s/60).toFixed(1)} 分钟`:`${(s/3600).toFixed(2)} 小时`}
+function reset(){
+  for(const k of ['mu','beta','U','t','tp','tpp','nproc','eta','n_iw','nw','wmax'])
+    if(META.defaults[k]!==undefined) $(k).value=META.defaults[k];
+  $('L').value=String(META.defaults.L);
+  $('method').value=META.defaults.method; $('kscope').value=META.defaults.kscope;
+  $('recompute').checked=false; $('etav').textContent=(+META.defaults.eta).toFixed(3);
+  document.querySelectorAll('#compare input').forEach(c=>c.checked=META.defaults.compare.includes(c.value));
+  onMethod();onNpz();onKs();onRecompute();estimate();
+}
+
+// ---------- 运行 ----------
+async function run(){
+  if(!guardSubmit('run')) return;            // 远程访客：不能提交重算
+  const body={
+    method:$('method').value, kscope:$('kscope').value,
+    recompute:$('recompute').checked,
+    npz_name:$('npz').value,
+    compare:[...document.querySelectorAll('#compare input:checked')].map(c=>c.value),
+    L:+$('L').value, mu:+$('mu').value, beta:+$('beta').value, U:+$('U').value,
+    t:+$('t').value, tp:+$('tp').value, tpp:+$('tpp').value,
+    nproc:+$('nproc').value, eta:+$('eta').value, n_iw:+$('n_iw').value,
+    nw:+$('nw').value, wmax:+$('wmax').value, msym:600
+  };
+  $('run').disabled=true; $('run').textContent='提交中…';
+  clearResults(false);
+  try{
+    const r=await apiFetch('api/run',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const j=await r.json();
+    if(!r.ok){ alert(j.error||('HTTP '+r.status)); $('run').disabled=false;
+      $('run').textContent='开始计算并出图'; return; }
+    JOB=j.job; SWEEP=false; START=Date.now();
+    // 运行期间禁用扫描提交（同一时刻只跑一个任务）；poll() 结束时恢复
+    $('sw_run').disabled=true;
+    addLog(`任务已提交（id ${JOB}），预估 ${fmt(j.estimate_s||0)}，${j.n_k} 个 k 点`,'g');
+    poll();
+  }catch(e){ alert('提交失败：'+e); $('run').disabled=false;
+    $('run').textContent='开始计算并出图'; }
+}
+async function poll(){
+  clearInterval(POLL);
+  // ⚠️ 扫描是小时级任务，600ms 轮询纯属浪费；按任务类型选间隔
+  const interval=SWEEP?2000:600;
+  POLL=setInterval(async()=>{
+    try{
+      const r=await apiFetch('api/status?job='+JOB); if(!r.ok) return;
+      const s=await r.json(); render(s);
+      if(s.status==='done'||s.status==='error'){
+        clearInterval(POLL);
+        // ⚠️ 不能无条件恢复按钮：远程访客的 run/sw_run 是被权限禁用的，
+        //    若在这里恢复，UI 会显示"可提交"但服务端仍返回 403，造成困惑。
+        //    统一交给 applyAccessControl() 按当前权限重算禁用状态。
+        $('run').textContent='开始计算并出图';
+        $('sw_run').textContent='开始扫描并生成动画';
+        $('an_run').textContent='生成 / 更新动画';
+        $('run').disabled=false; $('sw_run').disabled=false; $('an_run').disabled=false;
+        applyAccessControl();    // 按 can_submit/can_animate 重新禁用不该用的
+        SWEEP=false;
+        loadSweeps();          // 刷新「已有扫描结果」链接
+      }
+    }catch(e){/* 服务重启等，忽略单次失败 */}
+  },interval);
+}
+
+// ---------- 渲染 ----------
+function render(s){
+  const b=$('badge');
+  b.className='badge b-'+s.status;
+  b.innerHTML=(s.status==='running'?'<span class="spin"></span>':'')+
+    ({pending:'排队中',running:'运行中',done:'已完成',error:'失败'}[s.status]||s.status);
+  $('stage').textContent=s.stage||'';
+  $('elapsed').textContent='已用 '+fmt(s.elapsed||0);
+  const pc=s.total>0?Math.min(100,100*s.done/s.total):0;
+  $('bar').style.width=pc+'%';
+  // ⚠️ 扫描任务的 done 是小数（已完成点 + 当前点内 q 进度），单点任务是整数
+  const isSweep=(s.kind==='sweep');
+  $('progtext').textContent=s.total>0
+    ? (isSweep?`${(+s.done).toFixed(2)} / ${s.total} 点`:`${s.done} / ${s.total}`)
+      +`（${pc.toFixed(0)}%）`
+    : '';
+  if(s.log&&s.log.length){ $('logs').innerHTML=''; s.log.forEach(l=>addLog(l)); }
+  if(s.error){
+    $('logs').innerHTML+=`<div class="errbox"><b>失败：${esc(s.error.type)}</b><br>
+      <pre style="white-space:pre-wrap;font-size:10.5px;margin:6px 0 0">${esc(s.error.trace||'')}</pre></div>`;
+    scrollLogs();
+  }
+  // 扫描任务：门禁/四联图区不适用（那是单点任务的产物），改渲染动画
+  if(isSweep){
+    renderSweep(s);
+    return;
+  }
+  if(s.gates) renderGates(s.gates);
+  if(s.result) renderResult(s.result);
+  if(s.figures&&s.figures.length) renderFigs(s.figures);
+}
+function addLog(line,cls){
+  const m=/^(\[\s*[\d.]+s\])\s*(.*)$/.exec(line);
+  const d=document.createElement('div');
+  let body=m?m[2]:line, t=m?m[1]:'';
+  let c=cls||(/⚠️/.test(body)?'w':/❌|失败/.test(body)?'e':/✅|完成/.test(body)?'g':'');
+  d.innerHTML=(t?`<span class="t">${esc(t)}</span> `:'')+`<span class="${c}">${esc(body)}</span>`;
+  $('logs').appendChild(d); scrollLogs();
+}
+function scrollLogs(){const L=$('logs');L.scrollTop=L.scrollHeight}
+
+const GATE_META={
+  ndiv:['顶点真收敛','必须为 0，否则有裸泡退回、G 数据不可用'],
+  sumrule:['谱重守恒 ∫A dω','应 ≈1（谱函数归一），不依赖任何外部真值'],
+  luttinger:['Luttinger 计数','ξ+S<sub>Fock</sub>&lt;0 的格点数应 ≈ n<sub>post</sub>/2·N<sub>k</sub>（免延拓费米面判据）'],
+  fs_consistency:['两路径互证','corr(A(k,0), −|n<sub>k</sub>−1|) 应显著&gt;0：延拓谱峰处占据数≈1'],
+  reG:['Re G 重建路径','极点解析（首选，无积分误差）或 Kramers–Kronig']
+};
+function renderGates(g){
+  $('gatesEmpty').style.display='none';
+  const box=$('gates'); box.innerHTML='';
+  for(const [k,v] of Object.entries(g)){
+    const meta=GATE_META[k]||[k,''];
+    const has=('passed' in v);
+    const d=document.createElement('div');
+    d.className='gate'+(has?(v.passed?' pass':' fail'):'');
+    const icon=has?(v.passed?'✅':'❌'):'ℹ️';
+    const vals=Object.entries(v).filter(([kk])=>kk!=='passed'&&kk!=='note')
+      .map(([kk,vv])=>`${kk}=${typeof vv==='number'?fmtNum(vv):vv}`).join(' · ');
+    d.innerHTML=`<div class="gn"><span>${icon} ${meta[0]}</span></div>
+      <div class="gv">${esc(vals)||'—'}</div>
+      <div class="gd">${meta[1]}</div>`;
+    box.appendChild(d);
+  }
+}
+function fmtNum(v){
+  if(!isFinite(v)) return String(v);
+  const a=Math.abs(v);
+  if(a!==0&&(a<1e-3||a>=1e6)) return v.toExponential(3);
+  return (+v.toFixed(6)).toString();
+}
+function renderResult(r){
+  const q=(t,v)=>`<dt>${t}</dt><dd>${v}</dd>`;
+  $('result').innerHTML=`
+    <div class="kv">
+      ${q('数据',`${esc(r.npz)} · L=${r.L} · β=${r.beta} · μ=${r.mu} · U=${r.U}`)}
+      ${q('hopping',`t=${r.t} · t′=${r.tp} · t″=${r.tpp}`)}
+      ${q('密度 n<sub>post</sub>',(+r.n_post).toFixed(12))}
+      ${q('后端 / k 点数',`${esc(r.method)} · ${r.n_k_points} 点（失败 ${r.n_fail}）`)}
+      ${q('Matsubara 频率',`${r.n_iw_used} 个正频`)}
+      ${q('谱重 ∫A dω',`${fmtNum(r.sumrule_mean)}（范围 ${fmtNum(r.sumrule_min)}–${fmtNum(r.sumrule_max)}）`)}
+      ${q('∫DOS dω',fmtNum(r.dos_integral))}
+      ${q('Re G 路径',esc(r.reG_path||'—'))}
+      ${q('延拓耗时',fmt(r.wall_s))}
+      ${q('nodal',`${r.nodal.label} → 索引 (${r.nodal.ix}, ${r.nodal.iy}) ${r.nodal.exact?'精确命中':'近似'}`)}
+      ${q('antinodal',`${r.antinodal.label} → 索引 (${r.antinodal.ix}, ${r.antinodal.iy}) ${r.antinodal.exact?'精确命中':'近似'}`)}
+    </div>
+    <div class="warnbox" style="margin-top:10px">ℹ️ ${esc(r.degenerate_note||'')}</div>`;
+}
+function renderFigs(figs){
+  $('tabs').innerHTML=figs.map(f=>
+    `<div class="tab ${f.key===TAB?'on':''}" onclick="showTab('${f.key}')">Fig ${f.key}</div>`).join('');
+  const f=figs.find(x=>x.key===TAB)||figs[0];
+  const url=f.png?api(`api/fig/${JOB}/${f.png}?t=${Date.now()}`):null;
+  const pdf=f.pdf?api(`api/fig/${JOB}/${f.pdf}`):null;
+  const met=f.metrics?Object.entries(f.metrics).map(([k,v])=>
+    `<span>${esc(k)} <b>${typeof v==='number'?fmtNum(v):esc(String(v))}</b></span>`).join(''):'';
+  $('figarea').innerHTML=`
+    <div class="fighead"><span class="ft">${esc(f.label)}</span>
+      ${pdf?`<a href="${pdf}" target="_blank" rel="noopener">下载 pdf 矢量版</a>`:''}
+      ${url?`<a href="${url}" target="_blank" rel="noopener">下载 png（600 dpi）</a>`:''}</div>
+    ${f.error?`<div class="errbox">出图失败：${esc(f.error)}</div>`
+      :url?`<div class="figbox"><img src="${url}" alt="${esc(f.label)}"></div>`
+           :`<div class="empty">无图</div>`}
+    ${met?`<div class="metrics">${met}</div>`:''}`;
+}
+function showTab(k){TAB=k;
+  apiFetch('api/status?job='+JOB).then(r=>r.json()).then(s=>{if(s.figures)renderFigs(s.figures)})}
+// 主视图切换：single=单点四联图，anim=扫描动画
+function switchView(v){
+  const single=(v!=='anim');
+  $('view_single').style.display=single?'block':'none';
+  $('view_anim').style.display=single?'none':'block';
+  $('vt_single').classList.toggle('on',single);
+  $('vt_anim').classList.toggle('on',!single);
+  VIEW=v;
+}
+function clearResults(isSweep){
+  $('logs').innerHTML=''; TAB='A';
+  // 扫描/动画任务 ⇒ 自动切到动画视图；单点任务 ⇒ 切到单点视图
+  switchView(isSweep?'anim':'single');
+  if(isSweep){
+    $('animarea').innerHTML='<div class="empty"><span class="spin"></span>任务启动中……'
+      +'扫描完成第 1 个 μ 点（或动画重生成）后可在此查看。</div>';
+    $('animctl').innerHTML=''; $('animtable').innerHTML=''; $('animnote').innerHTML='';
+    return;
+  }
+  $('gates').innerHTML=''; $('gatesEmpty').style.display='block';
+  $('gatesEmpty').innerHTML='跑完任务后这里显示五道门禁的判定结果。';
+  $('result').innerHTML='<div class="empty">计算中…</div>';
+  $('tabs').innerHTML='';
+  $('figarea').innerHTML='<div class="empty"><span class="spin"></span>计算中，图会在对应阶段完成后出现。</div>';
+}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+
+// ---------- 静态说明 ----------
+const DOCS=`
+<h3 style="margin:2px 0 6px;font-size:13px">流程</h3>
+物理参数 → DLR 协变 postGW 求格林函数 G(k,iω) → 解析延拓得谱函数 A(k,ω)=−Im G<sup>R</sup>/π
+→ 可观测量（费米面 A(k,0)、DOS、nodal/antinodal、Re G<sup>R</sup>）→ APS 出版级四联图。
+计算全部复用已验证的 <code>observables.py</code> / <code>plots_aps.py</code> / <code>workbench.py</code>，
+Web 层只做调度，不含任何物理计算（避免两套实现口径分叉）。
+
+<h3 style="margin:14px 0 6px;font-size:13px">Re G<sup>R</sup>(ω) 的两条重建路径</h3>
+<table><tr><th>路径</th><th>适用后端</th><th>实测精度</th></tr>
+<tr><td><b>A · 极点解析</b>（首选）<br>G(z)=Σ<sub>l</sub> A<sub>l</sub>/(z−z<sub>l</sub>)</td>
+<td>MiniPole（返回极点+权重）</td><td>无网格/积分误差；与 KK 往返自洽残差 2.4e-4</td></tr>
+<tr><td><b>B · Kramers–Kronig</b><br>Re G(ω)=P∫A(ω′)/(ω−ω′)dω′</td>
+<td>MaxEnt / SpM / Nevanlinna（只给实谱）</td>
+<td>相对误差 5.5e-3（Lorentzian 闭式解，积分域一致时）</td></tr></table>
+KK 的三个坑（都已修）：① 分母必须是 (ω−ω′)，写反整体变号；
+② 必须用「减除奇点」主值，朴素删点误差达 1.3；
+③ 积分域必须覆盖谱的全部支撑且网格要密——奇点项是 −A′(ω)（符号为负），
+写成正号时细网格下被 dω 压掉看不出来，粗网格（dω=0.05）下误差达 0.3。
+
+<h3 style="margin:14px 0 6px;font-size:13px">Fig A 为什么用「周期化重建」而不是对 A 插值</h3>
+16×16 的 k 格点对窄准粒子峰（FWHM≈0.25）严重欠采样，对已延拓的 A 做插值
+（双线性或三次）都无法补出格点间的真实峰位，反而产生<b>念珠状双峰</b>与三次插值的负振铃
+（实测念珠度 115）。正确做法是 GW 画能带的标准操作：
+<b>ξ(k) 解析精确</b>（−2t(cos k<sub>x</sub>+cos k<sub>y</sub>)−4t′cos k<sub>x</sub>cos k<sub>y</sub>−μ，与 npz 存储值差 0.000e+00）
+＋ <b>Σ(k,iω) 在 k 空间光滑可插值</b> ⇒ 在 192 个稠密路径点上重建 G(k*,iω) 再逐点延拓。
+念珠度降到 43、目视光滑。硬自检：格点处重建 G 与存储 G_post 相对差 <b>4.7e-16</b>。
+个别路径点会延拓出异常极点（峰位错移＋谱重 1.46× 邻列），用双判据检出并以邻列均值替换。
+
+<h3 style="margin:14px 0 6px;font-size:13px">ω=0 就是费米能级（三重独立验证）</h3>
+① max|ξ − (ε<sub>k</sub>−μ)| = 0.000e+00 ⇒ npz 的 ξ 已减化学势；
+② Luttinger：ξ+S<sub>Fock</sub>&lt;0 有 109 格点，n<sub>k</sub>&gt;1 也是 109 点，目标 n<sub>post</sub>/2·N<sub>k</sub>=110.7；
+③ A(k,ω) 峰位与 Re G 过零点在 4 个高对称点全部吻合。
+⇒ 费米面判据 A(k,ω=0) 成立，图上白色等值线 ξ+S<sub>Fock</sub>=0 与延拓亮环精确重合。
+
+<h3 style="margin:14px 0 6px;font-size:13px">门禁④ 为什么用相关性而不是格点重叠</h3>
+n<sub>k</sub>&gt;1 标记的是<b>费米海内部（占据区面积，109 点）</b>，
+A(k,0)&gt;阈 标记的是<b>费米面本身（准粒子穿越 ω=0 的一条线，12 点）</b>。
+面是海的边界，测面积与测线长的格点集本就不该大面积重叠——用 jaccard 衡量是错判据
+（实测仅 0.07）。正确物理：占据数在费米面从 ≈2 跳到 ≈0 正好经过 1，
+故应检验 corr(A(k,0), −|n<sub>k</sub>−1|)，实测 <b>0.907</b>。
+
+<h3 style="margin:14px 0 6px;font-size:13px">已知局限（如实登记，不静默跳过）</h3>
+· <b>MaxEnt</b>：真实 L=16 数据上 256 点中约 1 点 Newton 求解失败（LinAlgError→IndexError），
+谱重偏高约 7%（1.071），FWHM 1.2 vs MiniPole 0.25 明显过平滑 ⇒ 只作交叉验证。
+· <b>SpM</b>：过平滑（合成用例 L1≈0.14），看整体形状可以，看细节不行。
+· <b>Nevanlinna</b>：官方已于 2026-10-15 弃用（对噪声敏感，推荐 MiniPole），~25s/点。
+· <b>神经网络延拓</b>：不可用——arXiv 2602.18561 全文未提供任何代码仓库，且论文自述劣于 MaxEnt。
+· <b>green-ac（C++）</b>：不可用——无 Windows wheel，需 Eigen/GMP/MPI 源码构建；
+MaxEnt/Padé 改由纯 Python 的 ana_cont + pade_shim 提供。
+· <b>Σ 不能直接延拓</b>：这些后端都是谱函数延拓器，假设 ρ≥0 且归一；Im Σ 可正可负，不满足前提。
+所以本工作台只延拓 G，Σ 的信息通过 Re G 间接给出。
+· <b>当前数据 t′=t″=0</b>：nodal 与 antinodal 简并，看不到分化，要看需重算。
+
+<h3 style="margin:14px 0 6px;font-size:13px">费米面的三种判据（Fig B 三面板）</h3>
+<table><tr><th>判据</th><th>定义</th><th>是否需延拓</th></tr>
+<tr><td>(a)(b) A(k,ω=0)</td><td>谱函数在费米能处最大；(b) 叠加解析 ξ+S<sub>Fock</sub>=0 等值线对照</td><td>需要</td></tr>
+<tr><td>(c) |∇<sub>k</sub> n<sub>k</sub> + n<sub>k</sub>=1</td><td>占据数 n<sub>k</sub>=2G(k,τ→β⁻) 在费米面从≈2陡降到≈0，梯度大处即费米面；白色等值线画 n<sub>k</sub>=1（半占据，教科书定义）</td><td><b>免延拓</b></td></tr></table>
+n<sub>k</sub> 梯度方案的价值：不经过解析延拓 ⇒ 不受后端选择、η 展宽、延拓失败点影响，是最稳健的费米面判据。<br>
+<b>⚠️ 关键坑（已固化成回归测试）：脊线不能只用 |∇n<sub>k</sub>| 局部极大。</b>
+实测 L=8 μ=0，纯局部极大给出 (2,2)(2,6)(6,2)(6,6)，与 ξ+S<sub>Fock</sub>=0 和 A(k,0) 峰
+<b>0/4 命中、平均差 3 格</b>——完全错。机理：(2,2) 处 n<sub>k</sub> 沿 x、y <b>双向同时</b>下降，
+中心差分把两分量叠加使 |∇| 被 √2 放大到 1.73，压过真实穿越点 (0,3) 的单向下降（|∇|=1.22）。
+即粗格点上 |∇n<sub>k</sub>| 幅值依赖费米面相对坐标轴的<b>取向</b>（对角走向被 √2 放大），是晶格伪影。
+修法：叠加「n<sub>k</sub> 穿越 1」条件消除取向偏置。实测 J3 双条件判据与两条独立基准
+<b>4/4 完全吻合</b>；脊线点 n<sub>k</sub>=0.773（近 1）vs J1 伪影点 n<sub>k</sub>=0.049（远离 1）。
+梯度算符本身用 Fourier 单模精确校验：dx 与解析周期中心差分差 <b>9.99e-16</b>（np.roll 环绕正确）。
+
+<h3 style="margin:14px 0 6px;font-size:13px">β≥8 必须调大 lmax_scgw（静默劣化陷阱）</h3>
+生产默认秩参数（lmax_scgw=24）是<b>为 β=4 标定</b>的。β=8 下若沿用会<b>静默劣化</b>（不报错、只是精度变差）：
+<table><tr><th>配置</th><th>半满 |n−1|</th><th>顶点残差</th><th>达标</th></tr>
+<tr><td>lmax=24, M_sym=600（基线）</td><td>2.94e-06</td><td>5.04e-05</td><td>❌ 超 1e-6 线</td></tr>
+<tr><td>lmax=24, M_sym=1200</td><td>2.946e-06</td><td>5.038e-05</td><td>❌ 几乎无变化</td></tr>
+<tr><td>lmax=40, M_sym=600</td><td><b>1.773e-07</b></td><td><b>3.10e-07</b></td><td>✅</td></tr></table>
+M_sym 加倍结果纹丝不动（它只进密度对称和、不进顶点求解），真凶只有 lmax_scgw：24→40 让 |n−1| 改善 16.6×。
+实测 lmax=40 的 q 点数与单 q 耗时与 24 相同 ⇒ <b>精度修复免费</b>。故服务端对 β≥8 <b>自动启用</b> lmax_scgw=40。<br>
+判据是半满锚点：U=2 时 μ=U/2=1.0 是 PH 对称不动点，n 必须严格=1，这是不依赖外部基准的<b>绝对</b>判据。
+L=8 全 11 点扫描已验证：μ=1.0 给出 n_post=1.0000000997（|n−1|=9.97e-08）。
+
+<h3 style="margin:14px 0 6px;font-size:13px">参数扫描 → 动画（③ 跑新扫描 / ④ 从已有数据生成）</h3>
+<b>为什么每个 μ 点都要重跑完整 postGW：</b> μ 进入 ξ=ε−μ ⇒ 改 G ⇒ 改极化 P ⇒ 改 W ⇒ 改 Σ ⇒ 改 G_post，
+自洽链每环都依赖 μ，<b>不能</b>由某个 μ 插值/平移得到另一个。成本 = N<sub>μ</sub> × 单点全扫。<br>
+<b>实测每点墙钟（β=8 U=2，8 进程）：</b>L=4→168s、L=8→974s、L=16→12776s（3.55h）。
+11 点：L=8≈3.1h、L=12≈13h（推算，已标注）、L=16≈39h。<b>成本全为实测标定，不做跨 L 外推</b>
+（本项目吃过外推错 30 倍的亏）。服务端上限 48h，超出拒绝并提示分批。<br>
+<b>③ 参数扫描 → 动画：</b>跑新扫描（逐 μ 点落盘 + 写 manifest，可断点续算/软取消）。<br>
+<b>④ 已有扫描数据 → 动画：</b>对<b>已算好的</b> npz 只重生成动画，不重算格林函数（秒~分钟级）；
+换延拓后端、改 η/帧率、或第一次补生成动画时用。「仅重建播放器」只做 base64 内嵌，秒级完成。<br>
+每帧是三面板合成图：A(k,ω) 沿高对称线（周期化）/ DOS(ω) / 费米面 A(k,0)+ξ+S=0 等值线。
+播放器数值表的 n_post/ndiv/顶点残差<b>全部读自各 μ 点 dlr_postgw 的实际返回值</b>（manifest.json），非图上估读；
+ndiv≠0 的帧标红并注明「物理上不可用」。<br>
+<b>player.html 自包含：</b>帧图 base64 内嵌，单文件可复制到任何位置播放（旧版用相对路径 frames/，
+交付后 HTML 被复制而 frames/ 没跟 ⇒ 图片全裂，已修）。工作台内经 api/anim/tag/ 访问时用相对路径省流量。
+
+<h3 style="margin:14px 0 6px;font-size:13px">APS 图版合规</h3>
+所有常量都追溯到 APS Journals「Style Basics」的官方要求，不是经验值：
+单栏 8.5 cm（官方给定）、最小字符高度 2 mm=5.67 pt、数据点直径 ≥1 mm=2.83 pt、
+线宽 ≥0.18 mm=0.5 pt、轴标单位入圆括号、子图标 (a)(b)、色盲安全调色板 + 线型双重冗余
+（灰度打印可辨）、≥600 dpi。<code>check_aps_compliance()</code> 每次存图前自检，
+并用<b>负向测试</b>（故意把字号设 3 pt、线宽 0.2 pt、marker 2 pt）证明它真能报警而非空壳。
+默认输出 pdf+png；色图的 eps 会达 13 MB（逐色块矢量），故按需生成。
+`;
+
+init();
+</script>
+</body>
+</html>
